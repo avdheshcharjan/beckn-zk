@@ -1,0 +1,12 @@
+FROM golang:1.22-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -o /out/bpp ./cmd/bpp
+
+FROM alpine:3.20
+COPY --from=build /out/bpp /usr/local/bin/bpp
+ENV PORT=8080
+EXPOSE 8080
+ENTRYPOINT ["/usr/local/bin/bpp"]
