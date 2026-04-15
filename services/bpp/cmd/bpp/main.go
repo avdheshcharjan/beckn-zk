@@ -10,6 +10,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+
+	"github.com/avdhesh/beckn-zk/services/bpp/internal/handlers"
 )
 
 type Health struct {
@@ -38,12 +40,14 @@ func main() {
 		if err := json.NewEncoder(w).Encode(Health{
 			OK:          true,
 			Personality: personality,
-			Version:     "0.1.0-scaffold",
+			Version:     "0.2.0-roundtrip",
 			Time:        time.Now().UTC().Format(time.RFC3339),
 		}); err != nil {
 			panic(err)
 		}
 	})
+
+	r.Method(http.MethodPost, "/search", handlers.NewSearchHandler(personality))
 
 	addr := fmt.Sprintf(":%s", port)
 	log.Printf("bpp %s listening on %s", personality, addr)
