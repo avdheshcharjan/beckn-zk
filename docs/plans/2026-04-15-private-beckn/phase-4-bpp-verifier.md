@@ -10,15 +10,17 @@
 
 ---
 
-## Important: verifier strategy
+## Important: verifier strategy — SETTLED
 
-Two possible approaches:
+Pre-build research (commit `442a87e`-adjacent, dispatched during plan writing) confirmed:
 
-**A. Native gnark verifier (preferred, cleaner).** Use `github.com/consensys/gnark` to verify the Groth16 proof directly in Go. Requires converting the anon-aadhaar verification key (JSON format from snarkjs) into `gnark`'s internal representation. There's a one-time "vkey translation" cost.
+**Use `github.com/vocdoni/circom2gnark`.** It is an actively maintained library that parses snarkjs-format `verification_key.json`, `proof.json`, and `public.json`, converts them into `gnark` BN254 Groth16 types (handling the G2 twist-ordering footgun and `(c0,c1)` vs `(A0,A1)` coordinate difference correctly), and verifies via `gnark`'s native Groth16 backend. Vocdoni uses it in production for their voting stack.
 
-**B. Node.js sidecar verifier (ugly but ships).** Spawn a small `node` subprocess that imports `snarkjs` and verifies. Keeps the verifier logic in the library that produced the proof. Works if (A) hits compatibility issues you can't debug in 30 minutes.
+Your entire verifier is ~15 lines. No vkey translation to write, no sidecar process.
 
-**Default to A.** Pivot to B if the vkey translation eats more than 20 minutes.
+**One caveat to know, not to fix:** circom2gnark is AGPL-3.0. Fine for this hiring-demo repo (which is public anyway) but worth mentioning in the root README so Finternet sees you noticed. Production answer — which you should be ready to say in the interview — is "rewrite the ~200 lines of point-conversion from snarkjs's documented JSON schema; format math isn't copyrightable, only the code."
+
+Fallback if circom2gnark ever breaks: spawn `node` with `snarkjs.groth16.verify`. Not needed on the happy path.
 
 ---
 
@@ -46,16 +48,17 @@ git commit -m "test(bpp): vendor sample anon-aadhaar proof + vkey as testdata"
 
 ---
 
-## Task 4.2 — gnark verifier: happy path
+## Task 4.2 — Groth16 verifier via circom2gnark
 
 **Files:**
 - Create: `services/bpp/internal/zk/verifier.go`
 - Create: `services/bpp/internal/zk/verifier_test.go`
 
-**Step 1:** Install gnark:
+**Step 1:** Install dependencies:
 
 ```bash
 cd /Users/avuthegreat/side-quests/beckn-zk/services/bpp
+go get github.com/vocdoni/circom2gnark@latest
 go get github.com/consensys/gnark@latest
 go get github.com/consensys/gnark-crypto@latest
 ```
@@ -66,7 +69,6 @@ go get github.com/consensys/gnark-crypto@latest
 package zk
 
 import (
-	"encoding/json"
 	"os"
 	"testing"
 )
@@ -89,11 +91,7 @@ func TestVerifierAcceptsValidProof(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new verifier: %v", err)
 	}
-	var pub []string
-	if err := json.Unmarshal(publicJSON, &pub); err != nil {
-		t.Fatalf("unmarshal public: %v", err)
-	}
-	ok, err := v.Verify(proofJSON, pub)
+	ok, err := v.Verify(proofJSON, publicJSON)
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
@@ -107,26 +105,42 @@ func TestVerifierRejectsTamperedProof(t *testing.T) {
 	publicJSON := loadTestdata(t, "sample_public.json")
 	vkeyJSON := loadTestdata(t, "verification_key.json")
 
-	// Flip a byte in the middle of the proof.
+	// Parse, mutate one coordinate, re-serialize.
 	tampered := make([]byte, len(proofJSON))
 	copy(tampered, proofJSON)
+	// Replace the first run of "12345" we find — if sample contains it — or
+	// simpler: bitflip a byte somewhere in the middle. For a JSON vkey this
+	// will usually produce unparseable JSON, which is fine; the verifier
+	// must return (false, err) or (false, nil), never (true, _).
 	tampered[len(tampered)/2] ^= 0x01
 
 	v, err := NewVerifier(vkeyJSON)
 	if err != nil {
 		t.Fatalf("new verifier: %v", err)
 	}
-	var pub []string
-	if err := json.Unmarshal(publicJSON, &pub); err != nil {
-		t.Fatal(err)
-	}
-	ok, err := v.Verify(tampered, pub)
-	// We accept *either* (ok=false, nil err) or (ok=false, non-nil err).
-	// We do NOT accept ok=true.
+	ok, _ := v.Verify(tampered, publicJSON)
 	if ok {
 		t.Errorf("tampered proof must not verify")
 	}
-	_ = err
+}
+
+func TestVerifierRejectsMismatchedPublicInputs(t *testing.T) {
+	proofJSON := loadTestdata(t, "sample_proof.json")
+	vkeyJSON := loadTestdata(t, "verification_key.json")
+
+	// Replace the first public signal with a different field element so the
+	// witness no longer matches the proof. We use a value extremely unlikely
+	// to collide with the real public input.
+	wrongPublic := []byte(`["1","2","3","4","5","6","7","8"]`)
+
+	v, err := NewVerifier(vkeyJSON)
+	if err != nil {
+		t.Fatalf("new verifier: %v", err)
+	}
+	ok, _ := v.Verify(proofJSON, wrongPublic)
+	if ok {
+		t.Errorf("wrong public inputs must not verify")
+	}
 }
 ```
 
@@ -136,66 +150,88 @@ func TestVerifierRejectsTamperedProof(t *testing.T) {
 go test ./internal/zk/...
 ```
 
-**Step 4:** Implement `services/bpp/internal/zk/verifier.go`. **The exact API calls depend on gnark's current version — read `gnark`'s Groth16 verifier docs before writing.** Outline:
+**Step 4:** Implement `services/bpp/internal/zk/verifier.go`:
 
 ```go
-// Package zk verifies Groth16 proofs produced by snarkjs-compatible circuits
-// (specifically anon-aadhaar v2). The library ships proofs as JSON objects
-// with pi_a/pi_b/pi_c on BN254. gnark supports BN254 Groth16 verification
-// given a parsed verification key and public inputs as field elements.
-//
-// If gnark cannot consume snarkjs-format vkeys directly in your version,
-// see the "sidecar" fallback in verifier_sidecar.go.
+// Package zk verifies Groth16 proofs produced by snarkjs/Circom circuits
+// (anon-aadhaar v2). Parsing snarkjs JSON into gnark's native BN254 types
+// is delegated to github.com/vocdoni/circom2gnark, which handles the
+// coordinate-ordering details correctly (in particular the G2 twist
+// ordering that differs between snarkjs and gnark).
 package zk
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/vocdoni/circom2gnark/parser"
 )
 
+// Verifier holds a parsed snarkjs verification key. It is safe for concurrent
+// use: Verify does not mutate state.
 type Verifier struct {
-	vkeyRaw []byte
-	// parsed fields go here — shape depends on gnark API version
+	vkey *parser.CircomVerificationKey
 }
 
 func NewVerifier(vkeyJSON []byte) (*Verifier, error) {
-	var sanity map[string]any
-	if err := json.Unmarshal(vkeyJSON, &sanity); err != nil {
-		return nil, fmt.Errorf("vkey is not JSON: %w", err)
+	vk, err := parser.UnmarshalCircomVerificationKeyJSON(vkeyJSON)
+	if err != nil {
+		return nil, fmt.Errorf("parse snarkjs vkey: %w", err)
 	}
-	// TODO: parse into gnark's bn254 VerifyingKey.
-	return &Verifier{vkeyRaw: vkeyJSON}, nil
+	return &Verifier{vkey: vk}, nil
 }
 
-func (v *Verifier) Verify(proofJSON []byte, publicInputs []string) (bool, error) {
-	if v == nil || len(v.vkeyRaw) == 0 {
+// Verify accepts snarkjs-format proof JSON and public-signals JSON, and
+// returns (true, nil) iff the proof is valid against the loaded vkey.
+// Any parse failure is returned as (false, err).
+func (v *Verifier) Verify(proofJSON, publicJSON []byte) (bool, error) {
+	if v == nil || v.vkey == nil {
 		return false, errors.New("verifier not initialized")
 	}
-	// TODO: parse proofJSON and publicInputs into gnark bn254 types,
-	//       then call groth16.Verify(proof, vkey, witness).
-	return false, errors.New("not implemented")
+	proof, err := parser.UnmarshalCircomProofJSON(proofJSON)
+	if err != nil {
+		return false, fmt.Errorf("parse snarkjs proof: %w", err)
+	}
+	pub, err := parser.UnmarshalCircomPublicSignalsJSON(publicJSON)
+	if err != nil {
+		return false, fmt.Errorf("parse public signals: %w", err)
+	}
+	gnarkProof, err := parser.ConvertCircomToGnark(proof, v.vkey, pub)
+	if err != nil {
+		return false, fmt.Errorf("convert to gnark: %w", err)
+	}
+	return parser.VerifyProof(gnarkProof)
 }
 ```
 
-**Step 5:** **Research step** — before implementing the TODOs, read `github.com/consensys/gnark/backend/groth16` and `gnark-crypto/ecc/bn254` docs. The key question: does gnark's `groth16.Verify` accept a proof struct you can populate from parsed JSON, or does it require a native gnark serialization format?
+**API note:** the exact type name `parser.CircomVerificationKey` and function names above are the current public API as of the research report. If `go build` complains that a name differs, check `pkg.go.dev/github.com/vocdoni/circom2gnark/parser` — the package is small (~1 file of top-level API) so the fix is always a one-line rename.
 
-If the answer is "native format required and no public converter exists," **switch to sidecar approach**: create `services/bpp/internal/zk/verifier_sidecar.go` that shells out to a Node script. The test suite above stays the same — only the `Verifier.Verify` implementation changes.
-
-**Step 6:** Implement for real. Run tests until they pass:
+**Step 5:** Run tests until they pass:
 
 ```bash
 go test ./internal/zk/... -v
 ```
 
-Expected: `TestVerifierAcceptsValidProof` PASS and `TestVerifierRejectsTamperedProof` PASS.
+Expected: all three tests PASS. The first proof-verification will take a noticeable amount of time (hundreds of ms) the first run as gnark warms up curve tables; subsequent verifications are fast.
 
-**Step 7:** Commit:
+**Step 6:** Commit:
 
 ```bash
 cd /Users/avuthegreat/side-quests/beckn-zk
 git add -A
-git commit -m "feat(bpp): Groth16 verifier with happy/unhappy tests"
+git commit -m "feat(bpp): Groth16 verifier via circom2gnark (AGPL noted in README)"
+```
+
+**Step 7:** Update the root `README.md` to disclose the AGPL dependency in a one-line "third-party" section. Do not hide it.
+
+```bash
+# Edit README.md to add:
+# ## Third-party
+# - `github.com/vocdoni/circom2gnark` (AGPL-3.0) — snarkjs→gnark Groth16 adapter.
+#   The repo is public, so AGPL applies only to derivative works.
+
+git add README.md
+git commit -m "docs: disclose circom2gnark AGPL dependency"
 ```
 
 ---
@@ -619,8 +655,8 @@ func TestAlphaAcceptsSearchWithoutProof(t *testing.T) {
 package handlers
 
 import (
+	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"time"
 
@@ -705,12 +741,13 @@ func (h *SearchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusForbidden, "40003", "nullifier replay: "+err.Error())
 			return
 		}
-		var pub []string
-		if err := json.Unmarshal([]byte(tag.PublicInputsJSON), &pub); err != nil {
-			writeError(w, http.StatusBadRequest, "40003", "public_inputs not JSON: "+err.Error())
+		// tag.ProofB64 is base64 of the snarkjs proof JSON (see Phase 3 zk.ts).
+		proofJSON, err := base64.StdEncoding.DecodeString(tag.ProofB64)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "40003", "proof not base64: "+err.Error())
 			return
 		}
-		ok, err := h.verifier.Verify([]byte(tag.ProofB64), pub) // proof is base64 — see note
+		ok, err := h.verifier.Verify(proofJSON, []byte(tag.PublicInputsJSON))
 		if err != nil {
 			writeError(w, http.StatusForbidden, "40003", "proof verification errored: "+err.Error())
 			return
@@ -720,8 +757,6 @@ func (h *SearchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-
-	_ = errors.New // keep import for sidecar path
 
 	resp := h.baseResp
 	resp.Context = req.Context
@@ -742,11 +777,7 @@ func (h *SearchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-**Note on `proof is base64`:** the verifier signature from Task 4.2 expects raw proof JSON bytes, not base64. You have two choices:
-1. Base64-decode in the handler before calling `Verify`.
-2. Move the base64-decode into `Verifier.Verify` itself.
-
-Pick (1) for clarity — add the `base64.StdEncoding.DecodeString` call inline in the handler, not in the verifier.
+**Note on base64:** the Beckn tag carries the proof as base64 (so it travels cleanly inside a JSON string value), but the verifier expects raw snarkjs JSON bytes. The handler does the `base64.StdEncoding.DecodeString` inline above — keep the boundary explicit, do not push base64 awareness into the verifier.
 
 **Step 4:** Add `services/bpp/internal/zk/default.go` that loads the vkey from embedded testdata so the handler has a working verifier:
 
