@@ -1,0 +1,20 @@
+node_modules/
+.next/
+out/
+dist/
+.env
+.env.local
+.vercel/
+.fly/
+*.log
+
+# Go
+services/bpp/bpp
+services/bpp/bin/
+services/ledger/ledger
+services/ledger/bin/
+
+# ZK artifacts
+*.zkey
+*.wasm
+!**/public/**/*.wasm
