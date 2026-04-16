@@ -2,8 +2,36 @@ export const BAP_ID = "beckn-zk-bap";
 export const BAP_URI =
   process.env.NEXT_PUBLIC_BAP_URI ?? "http://localhost:3000";
 
-// Phase 2: only one BPP. Phase 5 expands this to three personalities.
-export const BPP_URLS: string[] = [
-  process.env.NEXT_PUBLIC_BPP_ALPHA_URL ??
-    "https://beckn-zk-bpp-alpha.fly.dev",
+export interface BppTarget {
+  id: "lab-alpha" | "lab-beta" | "lab-gamma";
+  label: string;
+  url: string;
+  personality: "ignorant" | "required" | "preferred";
+}
+
+export const BPP_TARGETS: BppTarget[] = [
+  {
+    id: "lab-alpha",
+    label: "Lab Alpha (ZK-ignorant)",
+    url:
+      process.env.NEXT_PUBLIC_BPP_ALPHA_URL ??
+      "https://beckn-zk-bpp-alpha.fly.dev",
+    personality: "ignorant",
+  },
+  {
+    id: "lab-beta",
+    label: "Lab Beta (ZK-required)",
+    url:
+      process.env.NEXT_PUBLIC_BPP_BETA_URL ??
+      "https://beckn-zk-bpp-beta.fly.dev",
+    personality: "required",
+  },
+  {
+    id: "lab-gamma",
+    label: "Lab Gamma (ZK-preferred)",
+    url:
+      process.env.NEXT_PUBLIC_BPP_GAMMA_URL ??
+      "https://beckn-zk-bpp-gamma.fly.dev",
+    personality: "preferred",
+  },
 ];
