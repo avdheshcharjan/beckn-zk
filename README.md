@@ -28,6 +28,11 @@ pnpm dev:web          # http://localhost:3000
 pnpm dev:bpp          # http://localhost:8080
 ```
 
+## Third-party
+
+- `github.com/vocdoni/circom2gnark` (AGPL-3.0) — snarkjs→gnark Groth16 adapter.
+  The repo is public, so AGPL applies only to derivative works.
+
 ## Deploy
 
 ```bash
