@@ -1,7 +1,10 @@
 export type BecknEventKind =
   | "search.outbound"
   | "search.inbound"
-  | "search.error";
+  | "search.error"
+  | "confirm.outbound"
+  | "confirm.inbound"
+  | "confirm.error";
 
 export interface BecknEvent {
   id: string;

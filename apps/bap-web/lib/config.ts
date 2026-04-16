@@ -9,6 +9,9 @@ export interface BppTarget {
   personality: "ignorant" | "required" | "preferred";
 }
 
+export const LEDGER_URL =
+  process.env.NEXT_PUBLIC_LEDGER_URL ?? "https://beckn-zk-ledger.fly.dev";
+
 export const BPP_TARGETS: BppTarget[] = [
   {
     id: "lab-alpha",

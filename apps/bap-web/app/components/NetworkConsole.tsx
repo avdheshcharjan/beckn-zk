@@ -5,10 +5,16 @@ import type { BecknEvent } from "@/lib/events";
 
 function highlightZkTag(payload: unknown): string {
   const s = JSON.stringify(payload, null, 2);
-  return s.replace(
-    /"code":\s*"zk_proof"[\s\S]*?\]/,
-    (match) => `<<<${match}>>>`,
-  );
+  // Highlight zk_proof tag blocks and solvency_proof blocks
+  return s
+    .replace(
+      /"code":\s*"zk_proof"[\s\S]*?\]/,
+      (match) => `<<<${match}>>>`,
+    )
+    .replace(
+      /"solvency_proof":\s*\{[\s\S]*?\}/,
+      (match) => `<<<${match}>>>`,
+    );
 }
 
 export function NetworkConsole() {
@@ -45,9 +51,9 @@ export function NetworkConsole() {
         ) : (
           events.map((ev) => {
             const color =
-              ev.kind === "search.outbound"
+              ev.kind === "search.outbound" || ev.kind === "confirm.outbound"
                 ? "text-blue-400"
-                : ev.kind === "search.inbound"
+                : ev.kind === "search.inbound" || ev.kind === "confirm.inbound"
                   ? "text-green-400"
                   : "text-red-400";
             const text = highlightZkTag(ev.payload);

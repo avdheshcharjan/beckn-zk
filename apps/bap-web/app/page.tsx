@@ -4,13 +4,15 @@ import { useState } from "react";
 import { SearchForm, type SearchFormValues } from "./components/SearchForm";
 import { CatalogList } from "./components/CatalogList";
 import { NetworkConsole } from "./components/NetworkConsole";
+import { LedgerPanel } from "./components/LedgerPanel";
 import { LogInWithAnonAadhaar, useAnonAadhaar } from "@anon-aadhaar/react";
 import {
   computeBinding,
   normalizeAnonAadhaarProof,
   toZkTagGroup,
 } from "@/lib/zk";
-import type { TagGroup } from "@beckn-zk/core";
+import { LEDGER_URL } from "@/lib/config";
+import type { TagGroup, Item } from "@beckn-zk/core";
 
 function extractRawProof(serialized: unknown): unknown {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -31,6 +33,8 @@ export default function Home() {
   >([]);
   const [zkMode, setZkMode] = useState(false);
   const [anonAadhaar] = useAnonAadhaar();
+  const [ledgerKey, setLedgerKey] = useState(0);
+  const [booking, setBooking] = useState(false);
 
   async function onSubmit(values: SearchFormValues) {
     setLoading(true);
@@ -56,7 +60,6 @@ export default function Home() {
           console.error("raw proof extraction failed:", first);
           return;
         }
-        // Generate txId + timestamp here so the binding matches the Beckn context.
         transactionId = crypto.randomUUID();
         timestamp = new Date().toISOString();
         const binding = await computeBinding(transactionId, timestamp);
@@ -81,6 +84,59 @@ export default function Home() {
       setOutcomes(json.outcomes);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function onBook(item: Item) {
+    if (anonAadhaar.status !== "logged-in") {
+      alert("Need a proof before booking — enable ZK mode and prove first.");
+      return;
+    }
+    const proofs = anonAadhaar.anonAadhaarProofs;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const first = proofs ? (Object.values(proofs)[0] as any) : null;
+    if (!first) {
+      alert("No proof found.");
+      return;
+    }
+    const raw = extractRawProof(first);
+    if (!raw || !(raw as { groth16Proof?: unknown }).groth16Proof) {
+      alert("Proof extraction failed — check console.");
+      return;
+    }
+
+    setBooking(true);
+    try {
+      const txId = crypto.randomUUID();
+      const ts = new Date().toISOString();
+      const binding = await computeBinding(txId, ts);
+      const normalized = normalizeAnonAadhaarProof({
+        raw: raw as Parameters<typeof normalizeAnonAadhaarProof>[0]["raw"],
+        binding,
+      });
+      const solvencyTag = toZkTagGroup(normalized);
+      solvencyTag.descriptor = { code: "solvency_proof", name: "Solvency proof" };
+
+      const amount = parseInt(item.price.value, 10) || 3000;
+
+      const res = await fetch("/api/bap/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          transactionId: txId,
+          account: "patient-a",
+          amount,
+          currency: item.price.currency ?? "INR",
+          solvencyTag,
+        }),
+      });
+      const json = await res.json();
+      if (json.status !== 200) {
+        alert(`Settlement failed: ${JSON.stringify(json.body)}`);
+      }
+      setLedgerKey((k) => k + 1);
+    } finally {
+      setBooking(false);
     }
   }
 
@@ -113,7 +169,17 @@ export default function Home() {
         {zkMode && <LogInWithAnonAadhaar nullifierSeed={1234} />}
 
         <SearchForm onSubmit={onSubmit} disabled={loading} />
-        <CatalogList outcomes={outcomes} />
+        <CatalogList
+          outcomes={outcomes}
+          onBook={zkMode && anonAadhaar.status === "logged-in" ? onBook : undefined}
+        />
+        {booking && (
+          <p className="text-xs font-mono opacity-60 animate-pulse">
+            settling on ledger...
+          </p>
+        )}
+
+        <LedgerPanel ledgerUrl={LEDGER_URL} refreshKey={ledgerKey} />
       </section>
 
       <section className="h-full min-h-0">

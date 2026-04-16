@@ -1,4 +1,4 @@
-import type { OnSearchResponse } from "@beckn-zk/core";
+import type { OnSearchResponse, Item } from "@beckn-zk/core";
 
 interface Props {
   outcomes: {
@@ -7,9 +7,10 @@ interface Props {
     status: number;
     body: OnSearchResponse | { error: { code: string; message: string } };
   }[];
+  onBook?: (item: Item) => void;
 }
 
-export function CatalogList({ outcomes }: Props) {
+export function CatalogList({ outcomes, onBook }: Props) {
   return (
     <div className="flex flex-col gap-4 font-mono text-sm">
       {outcomes.map((o) => {
@@ -25,10 +26,20 @@ export function CatalogList({ outcomes }: Props) {
                 {(o.body as OnSearchResponse).message.catalog.providers.flatMap(
                   (p) =>
                     p.items.map((it) => (
-                      <li key={p.id + it.id} className="flex justify-between">
+                      <li key={p.id + it.id} className="flex justify-between items-center">
                         <span>{it.descriptor.name ?? it.id}</span>
-                        <span className="opacity-60">
-                          {it.price.value} {it.price.currency}
+                        <span className="flex items-center gap-3">
+                          <span className="opacity-60">
+                            {it.price.value} {it.price.currency}
+                          </span>
+                          {onBook && (
+                            <button
+                              className="text-xs underline text-green-400 hover:text-green-300"
+                              onClick={() => onBook(it)}
+                            >
+                              book
+                            </button>
+                          )}
                         </span>
                       </li>
                     )),
