@@ -21,9 +21,10 @@
  *     state: string
  *   }
  *
- * Public signals order (from prover.ts):
+ * Public signals order (from core.ts verify()):
  *   [0] pubkeyHash, [1] nullifier, [2] timestamp,
- *   [3] ageAbove18, [4] gender, [5] pincode, [6] state
+ *   [3] ageAbove18, [4] gender, [5] pincode, [6] state,
+ *   [7] nullifierSeed, [8] signalHash
  */
 
 import type { TagGroup } from "@beckn-zk/core";
@@ -81,6 +82,8 @@ export function normalizeAnonAadhaarProof({
   const groth16Json = JSON.stringify(raw.groth16Proof);
   const proofB64 = btoa(groth16Json);
 
+  // Must match the order used by groth16.verify() in @anon-aadhaar/core.
+  // The circuit has nPublic=9 (vkey IC has 10 elements).
   const publicInputs = JSON.stringify([
     raw.pubkeyHash,
     raw.nullifier,
@@ -89,6 +92,8 @@ export function normalizeAnonAadhaarProof({
     raw.gender,
     raw.pincode,
     raw.state,
+    raw.nullifierSeed,
+    raw.signalHash,
   ]);
 
   return {
