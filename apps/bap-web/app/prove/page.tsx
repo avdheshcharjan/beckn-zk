@@ -31,10 +31,24 @@ export default function ProvePage() {
           "logged in but no proof object present — library shape changed?",
         );
       }
-      // SerializedPCD has { type, pcd } where pcd is a JSON string.
-      // When deserialized the proof lives at .proof on the AnonAadhaarCore.
+      // SerializedPCD is { type: string, pcd: string }.
+      // The `pcd` field is a JSON string encoding an AnonAadhaarCore
+      // object: { type, id, claim, proof }. The `proof` field on
+      // that object is the AnonAadhaarProof with groth16Proof etc.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const raw = (first as any).proof;
+      const serialized = first as any;
+      const deserialized =
+        typeof serialized.pcd === "string"
+          ? JSON.parse(serialized.pcd)
+          : serialized;
+      const raw = deserialized.proof;
+      console.log("[anon-aadhaar] deserialized PCD:", deserialized);
+      console.log("[anon-aadhaar] raw proof:", raw);
+      if (!raw || !raw.groth16Proof) {
+        throw new Error(
+          "unexpected proof shape — dump: " + JSON.stringify(deserialized),
+        );
+      }
       const binding = await computeBinding(
         "tx-demo-prove-page",
         new Date().toISOString(),
