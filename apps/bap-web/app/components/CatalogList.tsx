@@ -36,8 +36,11 @@ export function CatalogList({ outcomes }: Props) {
               </ul>
             ) : (
               <div className="text-red-400 mt-2">
-                {(o.body as { error: { code: string; message: string } }).error.code}:{" "}
-                {(o.body as { error: { code: string; message: string } }).error.message}
+                {(() => {
+                  const b = o.body as Record<string, unknown>;
+                  const err = (b.error as Record<string, string>) ?? b;
+                  return `${err.code ?? o.status}: ${err.message ?? "error"}`;
+                })()}
               </div>
             )}
           </div>
