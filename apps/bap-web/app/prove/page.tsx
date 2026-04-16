@@ -37,16 +37,24 @@ export default function ProvePage() {
       // that object is the AnonAadhaarProof with groth16Proof etc.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const serialized = first as any;
-      const deserialized =
-        typeof serialized.pcd === "string"
-          ? JSON.parse(serialized.pcd)
-          : serialized;
-      const raw = deserialized.proof;
-      console.log("[anon-aadhaar] deserialized PCD:", deserialized);
+      let raw;
+
+      if (serialized?.proof?.groth16Proof) {
+        raw = serialized.proof;
+      } else if (serialized?.pcd) {
+        const pcdObj =
+          typeof serialized.pcd === "string"
+            ? JSON.parse(serialized.pcd)
+            : serialized.pcd;
+        raw = pcdObj?.proof;
+      } else if (serialized?.groth16Proof) {
+        raw = serialized;
+      }
+
       console.log("[anon-aadhaar] raw proof:", raw);
       if (!raw || !raw.groth16Proof) {
         throw new Error(
-          "unexpected proof shape — dump: " + JSON.stringify(deserialized),
+          "unexpected proof shape — dump: " + JSON.stringify(serialized),
         );
       }
       const binding = await computeBinding(

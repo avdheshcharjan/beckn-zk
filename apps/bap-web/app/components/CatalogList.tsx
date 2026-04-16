@@ -2,6 +2,7 @@ import type { OnSearchResponse } from "@beckn-zk/core";
 
 interface Props {
   outcomes: {
+    bppId?: string;
     bppUrl: string;
     status: number;
     body: OnSearchResponse | { error: { code: string; message: string } };
@@ -14,9 +15,9 @@ export function CatalogList({ outcomes }: Props) {
       {outcomes.map((o) => {
         const isSuccess = "context" in o.body;
         return (
-          <div key={o.bppUrl} className="border border-neutral-800 p-3">
+          <div key={o.bppId ?? o.bppUrl} className="border border-neutral-800 p-3">
             <div className="flex justify-between opacity-60 text-xs">
-              <span>{o.bppUrl}</span>
+              <span>{o.bppId ?? o.bppUrl}</span>
               <span>{o.status}</span>
             </div>
             {isSuccess ? (
