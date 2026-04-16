@@ -25,6 +25,24 @@ func TestVerifierParsesVKey(t *testing.T) {
 	}
 }
 
+func TestVerifierAcceptsValidProof(t *testing.T) {
+	proofJSON := loadTestdata(t, "sample_proof.json")
+	publicJSON := loadTestdata(t, "sample_public.json")
+	vkeyJSON := loadTestdata(t, "verification_key.json")
+
+	v, err := NewVerifier(vkeyJSON)
+	if err != nil {
+		t.Fatalf("new verifier: %v", err)
+	}
+	ok, err := v.Verify(proofJSON, publicJSON)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if !ok {
+		t.Errorf("expected valid proof to verify")
+	}
+}
+
 func TestVerifierRejectsTamperedProof(t *testing.T) {
 	proofJSON := loadTestdata(t, "sample_proof.json")
 	publicJSON := loadTestdata(t, "sample_public.json")
