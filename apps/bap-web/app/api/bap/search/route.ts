@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
-import { buildSearch, type OnSearchResponse } from "@beckn-zk/core";
-import { BAP_ID, BAP_URI, BPP_URLS } from "@/lib/config";
+import { randomUUID } from "node:crypto";
+import {
+  buildSearch,
+  type OnSearchResponse,
+  type TagGroup,
+} from "@beckn-zk/core";
+import { BAP_ID, BAP_URI, BPP_TARGETS } from "@/lib/config";
+import { bus } from "@/lib/events";
 
 export const runtime = "nodejs";
 
@@ -9,9 +15,11 @@ interface ClientSearchBody {
   itemName?: string;
   gps?: string;
   radiusKm?: string;
+  zkTag?: TagGroup | null;
 }
 
 interface BppOutcome {
+  bppId: string;
   bppUrl: string;
   status: number;
   body: OnSearchResponse | { error: { code: string; message: string } };
@@ -42,18 +50,69 @@ export async function POST(req: Request) {
             },
           }
         : undefined,
+      tags: body.zkTag ? [body.zkTag] : undefined,
     },
   });
 
-  const outcomes: BppOutcome[] = await Promise.all(
-    BPP_URLS.map(async (bppUrl): Promise<BppOutcome> => {
-      const res = await fetch(`${bppUrl}/search`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(search),
-      });
-      const respBody = (await res.json()) as BppOutcome["body"];
-      return { bppUrl, status: res.status, body: respBody };
+  const txId = search.context.transaction_id;
+  const ts = search.context.timestamp;
+  const zk = Boolean(body.zkTag);
+
+  // One outbound event per target so the console can show three separate rows.
+  for (const t of BPP_TARGETS) {
+    bus.publish({
+      id: randomUUID(),
+      kind: "search.outbound",
+      bppId: t.id,
+      transactionId: txId,
+      timestamp: ts,
+      payload: search,
+      zk,
+    });
+  }
+
+  const outcomes = await Promise.all(
+    BPP_TARGETS.map(async (t): Promise<BppOutcome> => {
+      try {
+        const res = await fetch(`${t.url}/search`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(search),
+        });
+        const respBody = (await res.json()) as BppOutcome["body"];
+        bus.publish({
+          id: randomUUID(),
+          kind: res.ok ? "search.inbound" : "search.error",
+          bppId: t.id,
+          transactionId: txId,
+          timestamp: new Date().toISOString(),
+          payload: respBody,
+          zk,
+        });
+        return {
+          bppId: t.id,
+          bppUrl: t.url,
+          status: res.status,
+          body: respBody,
+        };
+      } catch (err) {
+        const payload = {
+          error: {
+            code: "NETWORK",
+            message: err instanceof Error ? err.message : "fetch failed",
+          },
+        };
+        bus.publish({
+          id: randomUUID(),
+          kind: "search.error",
+          bppId: t.id,
+          transactionId: txId,
+          timestamp: new Date().toISOString(),
+          payload,
+          zk,
+        });
+        return { bppId: t.id, bppUrl: t.url, status: 0, body: payload };
+      }
     }),
   );
 
