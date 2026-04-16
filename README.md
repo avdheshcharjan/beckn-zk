@@ -12,7 +12,7 @@ identity, and the network console shows the difference in real time.
 
 | Service   | URL                                                       |
 |-----------|-----------------------------------------------------------|
-| BAP web   | https://bap-web-avdheshcharjans-projects.vercel.app       |
+| BAP web   | https://bap-web-lilac.vercel.app                           |
 | BPP alpha | https://beckn-zk-bpp-alpha.fly.dev                        |
 | BPP beta  | https://beckn-zk-bpp-beta.fly.dev                         |
 | BPP gamma | https://beckn-zk-bpp-gamma.fly.dev                        |

@@ -18,4 +18,3 @@ services/ledger/bin/
 *.zkey
 *.wasm
 !**/public/**/*.wasm
-.vercel
