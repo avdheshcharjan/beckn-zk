@@ -7,19 +7,24 @@ interface Snapshot {
 }
 
 interface Props {
-  ledgerUrl: string;
   refreshKey: number;
 }
 
-export function LedgerPanel({ ledgerUrl, refreshKey }: Props) {
+export function LedgerPanel({ refreshKey }: Props) {
   const [snap, setSnap] = useState<Snapshot>({});
 
   useEffect(() => {
-    fetch(`${ledgerUrl}/snapshot`)
+    fetch("/api/bap/ledger")
       .then((r) => r.json() as Promise<Snapshot>)
-      .then(setSnap)
+      .then((data) => {
+        if ("error" in data) {
+          setSnap({});
+        } else {
+          setSnap(data);
+        }
+      })
       .catch(() => setSnap({}));
-  }, [ledgerUrl, refreshKey]);
+  }, [refreshKey]);
 
   return (
     <div className="border border-neutral-800 p-3 font-mono text-xs">

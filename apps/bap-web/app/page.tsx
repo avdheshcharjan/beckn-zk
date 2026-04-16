@@ -11,7 +11,6 @@ import {
   normalizeAnonAadhaarProof,
   toZkTagGroup,
 } from "@/lib/zk";
-import { LEDGER_URL } from "@/lib/config";
 import type { TagGroup, Item } from "@beckn-zk/core";
 
 function extractRawProof(serialized: unknown): unknown {
@@ -179,7 +178,7 @@ export default function Home() {
           </p>
         )}
 
-        <LedgerPanel ledgerUrl={LEDGER_URL} refreshKey={ledgerKey} />
+        <LedgerPanel refreshKey={ledgerKey} />
       </section>
 
       <section className="h-full min-h-0">

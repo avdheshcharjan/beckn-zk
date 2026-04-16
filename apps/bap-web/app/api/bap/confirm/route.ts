@@ -40,27 +40,49 @@ export async function POST(req: Request) {
     zk: true,
   });
 
-  const res = await fetch(`${LEDGER_URL}/settle`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      transaction_id: body.transactionId,
-      account: body.account,
-      amount: body.amount,
-      currency: body.currency,
-      solvency_proof: proof,
-    }),
-  });
-  const respBody = await res.json();
+  try {
+    const res = await fetch(`${LEDGER_URL}/settle`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        transaction_id: body.transactionId,
+        account: body.account,
+        amount: body.amount,
+        currency: body.currency,
+        solvency_proof: proof,
+      }),
+    });
 
-  bus.publish({
-    id: randomUUID(),
-    kind: res.ok ? "confirm.inbound" : "confirm.error",
-    transactionId: body.transactionId,
-    timestamp: new Date().toISOString(),
-    payload: respBody,
-    zk: true,
-  });
+    let respBody: unknown;
+    const text = await res.text();
+    try {
+      respBody = JSON.parse(text);
+    } catch {
+      respBody = { error: text || "empty response" };
+    }
 
-  return NextResponse.json({ status: res.status, body: respBody });
+    bus.publish({
+      id: randomUUID(),
+      kind: res.ok ? "confirm.inbound" : "confirm.error",
+      transactionId: body.transactionId,
+      timestamp: new Date().toISOString(),
+      payload: respBody,
+      zk: true,
+    });
+
+    return NextResponse.json({ status: res.status, body: respBody });
+  } catch (err) {
+    const errPayload = {
+      error: err instanceof Error ? err.message : "ledger unreachable",
+    };
+    bus.publish({
+      id: randomUUID(),
+      kind: "confirm.error",
+      transactionId: body.transactionId,
+      timestamp: new Date().toISOString(),
+      payload: errPayload,
+      zk: true,
+    });
+    return NextResponse.json({ status: 502, body: errPayload }, { status: 502 });
+  }
 }
