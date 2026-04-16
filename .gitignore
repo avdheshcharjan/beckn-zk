@@ -18,3 +18,5 @@ services/ledger/bin/
 *.zkey
 *.wasm
 !**/public/**/*.wasm
+.claude
+docs/
