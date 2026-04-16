@@ -1,7 +1,4 @@
-# fly.toml app configuration file generated for beckn-zk-bpp-alpha on 2026-04-15T22:19:43+08:00
-#
-# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
-#
+# fly.toml — beckn-zk-bpp-alpha (ZK-ignorant)
 
 app = 'beckn-zk-bpp-alpha'
 primary_region = 'bom'
