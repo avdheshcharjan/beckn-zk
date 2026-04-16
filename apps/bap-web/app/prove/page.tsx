@@ -14,6 +14,11 @@ export default function ProvePage() {
   const [anonAadhaar] = useAnonAadhaar();
   const [normalized, setNormalized] = useState<NormalizedZkProof | null>(null);
   const [tag, setTag] = useState<TagGroup | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     if (anonAadhaar.status !== "logged-in") return;
@@ -48,8 +53,14 @@ export default function ProvePage() {
     <main className="min-h-screen bg-black text-white p-8 font-mono">
       <div className="max-w-3xl mx-auto flex flex-col gap-6">
         <h1 className="text-2xl">anon-aadhaar → Beckn tag</h1>
-        <p className="text-xs opacity-60">status: {anonAadhaar.status}</p>
-        <LogInWithAnonAadhaar nullifierSeed={1234} />
+        {mounted ? (
+          <>
+            <p className="text-xs opacity-60">status: {anonAadhaar.status}</p>
+            <LogInWithAnonAadhaar nullifierSeed={1234} />
+          </>
+        ) : (
+          <p className="text-xs opacity-60">loading…</p>
+        )}
 
         {normalized && (
           <section>
