@@ -36,6 +36,8 @@ export default function Home() {
     setLoading(true);
     try {
       let zkTag: TagGroup | null = null;
+      let transactionId: string | undefined;
+      let timestamp: string | undefined;
 
       if (zkMode) {
         if (anonAadhaar.status !== "logged-in") {
@@ -54,8 +56,10 @@ export default function Home() {
           console.error("raw proof extraction failed:", first);
           return;
         }
-        const ts = new Date().toISOString();
-        const binding = await computeBinding("demo-search", ts);
+        // Generate txId + timestamp here so the binding matches the Beckn context.
+        transactionId = crypto.randomUUID();
+        timestamp = new Date().toISOString();
+        const binding = await computeBinding(transactionId, timestamp);
         const normalized = normalizeAnonAadhaarProof({
           raw: raw as Parameters<typeof normalizeAnonAadhaarProof>[0]["raw"],
           binding,
@@ -66,7 +70,7 @@ export default function Home() {
       const res = await fetch("/api/bap/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...values, zkTag }),
+        body: JSON.stringify({ ...values, zkTag, transactionId, timestamp }),
       });
       if (!res.ok) {
         throw new Error(`search failed: ${res.status}`);

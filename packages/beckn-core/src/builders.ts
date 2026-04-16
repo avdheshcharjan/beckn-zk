@@ -6,6 +6,7 @@ export interface BuildSearchArgs {
   bapUri: string;
   intent: Intent;
   transactionId?: string;
+  timestamp?: string;
 }
 
 export function buildSearch({
@@ -13,6 +14,7 @@ export function buildSearch({
   bapUri,
   intent,
   transactionId,
+  timestamp,
 }: BuildSearchArgs): SearchRequest {
   const context: Context = {
     domain: "dhp:diagnostics:0.1.0",
@@ -26,7 +28,7 @@ export function buildSearch({
     bap_uri: bapUri,
     transaction_id: transactionId ?? randomUUID(),
     message_id: randomUUID(),
-    timestamp: new Date().toISOString(),
+    timestamp: timestamp ?? new Date().toISOString(),
     ttl: "PT30S",
   };
   return { context, message: { intent } };

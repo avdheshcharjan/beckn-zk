@@ -16,6 +16,9 @@ interface ClientSearchBody {
   gps?: string;
   radiusKm?: string;
   zkTag?: TagGroup | null;
+  /** When ZK mode is on, the browser pre-generates these so the binding matches. */
+  transactionId?: string;
+  timestamp?: string;
 }
 
 interface BppOutcome {
@@ -31,6 +34,8 @@ export async function POST(req: Request) {
   const search = buildSearch({
     bapId: BAP_ID,
     bapUri: BAP_URI,
+    transactionId: body.transactionId,
+    timestamp: body.timestamp,
     intent: {
       category: body.categoryName
         ? { descriptor: { name: body.categoryName } }
