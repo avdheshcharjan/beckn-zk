@@ -7,6 +7,9 @@
     "dev:web": "pnpm --filter bap-web dev",
     "build:web": "pnpm --filter bap-web build",
     "dev:bpp": "cd services/bpp && go run ./cmd/bpp",
-    "test:bpp": "cd services/bpp && go test ./..."
+    "test:bpp": "cd services/bpp && go test ./...",
+    "infra:up": "cd infra && ./scripts/start.sh",
+    "infra:down": "cd infra && docker compose down",
+    "dev:live": "BECKN_MODE=onix NEXT_PUBLIC_BECKN_MODE=onix ONIX_BAP_URL=http://localhost:8081 BAP_SUBSCRIBER_URI=http://onix-bap:8081/bap/receiver/ pnpm dev:web"
   }
 }

@@ -32,7 +32,7 @@ func TestBetaRejectsSearchWithoutProof(t *testing.T) {
 	body, _ := json.Marshal(req)
 	r := httptest.NewRequest(http.MethodPost, "/search", bytes.NewReader(body))
 	w := httptest.NewRecorder()
-	NewSearchHandler("lab-beta").ServeHTTP(w, r)
+	NewSearchHandler("lab-beta", nil, "").ServeHTTP(w, r)
 
 	if w.Code != http.StatusForbidden {
 		t.Errorf("beta without proof should be 403, got %d: %s", w.Code, w.Body.String())
@@ -44,7 +44,7 @@ func TestAlphaAcceptsSearchWithoutProof(t *testing.T) {
 	body, _ := json.Marshal(req)
 	r := httptest.NewRequest(http.MethodPost, "/search", bytes.NewReader(body))
 	w := httptest.NewRecorder()
-	NewSearchHandler("lab-alpha").ServeHTTP(w, r)
+	NewSearchHandler("lab-alpha", nil, "").ServeHTTP(w, r)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("alpha without proof should be 200, got %d: %s", w.Code, w.Body.String())
@@ -56,7 +56,7 @@ func TestGammaAcceptsSearchWithoutProof(t *testing.T) {
 	body, _ := json.Marshal(req)
 	r := httptest.NewRequest(http.MethodPost, "/search", bytes.NewReader(body))
 	w := httptest.NewRecorder()
-	NewSearchHandler("lab-gamma").ServeHTTP(w, r)
+	NewSearchHandler("lab-gamma", nil, "").ServeHTTP(w, r)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("gamma without proof should be 200, got %d: %s", w.Code, w.Body.String())
@@ -68,7 +68,7 @@ func TestGammaRedactsCatalogWithoutProof(t *testing.T) {
 	body, _ := json.Marshal(req)
 	r := httptest.NewRequest(http.MethodPost, "/search", bytes.NewReader(body))
 	w := httptest.NewRecorder()
-	NewSearchHandler("lab-gamma").ServeHTTP(w, r)
+	NewSearchHandler("lab-gamma", nil, "").ServeHTTP(w, r)
 
 	var resp beckn.OnSearchResponse
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {

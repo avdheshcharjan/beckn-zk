@@ -12,6 +12,17 @@ export interface BppTarget {
 export const LEDGER_URL =
   process.env.NEXT_PUBLIC_LEDGER_URL ?? "https://beckn-zk-ledger.fly.dev";
 
+export type BecknMode = "direct" | "onix";
+
+export const BECKN_MODE: BecknMode =
+  (process.env.BECKN_MODE as BecknMode) ?? "direct";
+
+export const ONIX_BAP_URL =
+  process.env.ONIX_BAP_URL ?? "http://localhost:8081";
+
+export const BAP_SUBSCRIBER_URI =
+  process.env.BAP_SUBSCRIBER_URI ?? "http://onix-bap:8081/bap/receiver/";
+
 export const BPP_TARGETS: BppTarget[] = [
   {
     id: "lab-alpha",

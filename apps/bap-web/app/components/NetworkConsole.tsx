@@ -19,7 +19,12 @@ function highlightZkTag(payload: unknown): string {
 
 export function NetworkConsole() {
   const [events, setEvents] = useState<BecknEvent[]>([]);
+  const [onixMode, setOnixMode] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setOnixMode(process.env.NEXT_PUBLIC_BECKN_MODE === "onix");
+  }, []);
 
   useEffect(() => {
     const es = new EventSource("/api/bap/events");
@@ -89,7 +94,7 @@ export function NetworkConsole() {
       </div>
       <div className="px-3 py-1 text-[10px] opacity-40 border-t border-neutral-800 flex justify-between">
         <span>
-          real: groth16, nullifier, binding · mocked: sigs, registry
+          real: groth16, nullifier, binding · {onixMode ? "real: sigs, registry (onix)" : "mocked: sigs, registry"}
         </span>
         <span>{events.length} msgs</span>
       </div>

@@ -1,0 +1,9 @@
+routingRules:
+  - domain: "dhp:diagnostics:0.1.0"
+    version: "1.1.0"
+    routingType: "url"
+    targetType: "url"
+    target:
+      url: "http://host.docker.internal:3000/api/bap/on_search"
+    endpoints:
+      - on_search

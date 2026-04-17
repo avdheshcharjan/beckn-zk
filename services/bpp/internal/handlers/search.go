@@ -3,27 +3,33 @@ package handlers
 import (
 	"encoding/base64"
 	"encoding/json"
+	"log"
 	"net/http"
 	"time"
 
 	"github.com/avdhesh/beckn-zk/services/bpp/internal/beckn"
+	"github.com/avdhesh/beckn-zk/services/bpp/internal/callback"
 	"github.com/avdhesh/beckn-zk/services/bpp/internal/catalog"
 	"github.com/avdhesh/beckn-zk/services/bpp/internal/zk"
 )
 
 type SearchHandler struct {
-	personality string
-	baseResp    beckn.OnSearchResponse
-	verifier    *zk.Verifier
-	nullifiers  *zk.NullifierCache
+	personality    string
+	baseResp       beckn.OnSearchResponse
+	verifier       *zk.Verifier
+	nullifiers     *zk.NullifierCache
+	callbackClient *callback.Client
+	bppURI         string
 }
 
-func NewSearchHandler(personality string) *SearchHandler {
+func NewSearchHandler(personality string, cb *callback.Client, bppURI string) *SearchHandler {
 	return &SearchHandler{
-		personality: personality,
-		baseResp:    catalog.Load(),
-		verifier:    zk.LoadDefaultVerifier(),
-		nullifiers:  zk.NewNullifierCache(10 * time.Minute),
+		personality:    personality,
+		baseResp:       catalog.Load(),
+		verifier:       zk.LoadDefaultVerifier(),
+		nullifiers:     zk.NewNullifierCache(10 * time.Minute),
+		callbackClient: cb,
+		bppURI:         bppURI,
 	}
 }
 
@@ -33,6 +39,25 @@ func writeError(w http.ResponseWriter, status int, code, msg string) {
 	_ = json.NewEncoder(w).Encode(map[string]string{
 		"code":    code,
 		"message": msg,
+	})
+}
+
+func writeACK(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(beckn.AckResponse{
+		Message: beckn.AckMessage{
+			Ack: beckn.Ack{Status: "ACK"},
+		},
+	})
+}
+
+func writeNACK(w http.ResponseWriter, code, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(beckn.AckResponse{
+		Message: beckn.AckMessage{
+			Ack: beckn.Ack{Status: "NACK"},
+		},
+		Error: &beckn.BecknError{Code: code, Message: msg},
 	})
 }
 
@@ -66,7 +91,11 @@ func (h *SearchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch h.personality {
 	case "lab-beta":
 		if !hasProof {
-			writeError(w, http.StatusForbidden, "40003", "proof required for this BPP")
+			if h.callbackClient != nil {
+				writeNACK(w, "40003", "proof required for this BPP")
+			} else {
+				writeError(w, http.StatusForbidden, "40003", "proof required for this BPP")
+			}
 			return
 		}
 	case "lab-alpha":
@@ -80,25 +109,45 @@ func (h *SearchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if hasProof && h.personality != "lab-alpha" {
 		if err := zk.VerifyBinding(tag.Binding, req.Context.TransactionID, req.Context.Timestamp); err != nil {
-			writeError(w, http.StatusForbidden, "40003", "binding check failed: "+err.Error())
+			if h.callbackClient != nil {
+				writeNACK(w, "40003", "binding check failed: "+err.Error())
+			} else {
+				writeError(w, http.StatusForbidden, "40003", "binding check failed: "+err.Error())
+			}
 			return
 		}
 		if err := h.nullifiers.CheckAndStore(tag.Nullifier); err != nil {
-			writeError(w, http.StatusForbidden, "40003", "nullifier replay: "+err.Error())
+			if h.callbackClient != nil {
+				writeNACK(w, "40003", "nullifier replay: "+err.Error())
+			} else {
+				writeError(w, http.StatusForbidden, "40003", "nullifier replay: "+err.Error())
+			}
 			return
 		}
 		proofJSON, err := base64.StdEncoding.DecodeString(tag.ProofB64)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "40003", "proof not base64: "+err.Error())
+			if h.callbackClient != nil {
+				writeNACK(w, "40003", "proof not base64: "+err.Error())
+			} else {
+				writeError(w, http.StatusBadRequest, "40003", "proof not base64: "+err.Error())
+			}
 			return
 		}
 		ok, err := h.verifier.Verify(proofJSON, []byte(tag.PublicInputsJSON))
 		if err != nil {
-			writeError(w, http.StatusForbidden, "40003", "proof verification errored: "+err.Error())
+			if h.callbackClient != nil {
+				writeNACK(w, "40003", "proof verification errored: "+err.Error())
+			} else {
+				writeError(w, http.StatusForbidden, "40003", "proof verification errored: "+err.Error())
+			}
 			return
 		}
 		if !ok {
-			writeError(w, http.StatusForbidden, "40003", "proof rejected")
+			if h.callbackClient != nil {
+				writeNACK(w, "40003", "proof rejected")
+			} else {
+				writeError(w, http.StatusForbidden, "40003", "proof rejected")
+			}
 			return
 		}
 	}
@@ -107,7 +156,12 @@ func (h *SearchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	resp.Context = req.Context
 	resp.Context.Action = "on_search"
 	resp.Context.BppID = "beckn-zk-bpp-" + h.personality
-	resp.Context.BppURI = "https://beckn-zk-bpp-" + h.personality + ".fly.dev"
+
+	if h.bppURI != "" {
+		resp.Context.BppURI = h.bppURI
+	} else {
+		resp.Context.BppURI = "https://beckn-zk-bpp-" + h.personality + ".fly.dev"
+	}
 	resp.Context.Timestamp = time.Now().UTC().Format(time.RFC3339)
 
 	// If gamma and no proof, return a redacted catalog (first provider only).
@@ -115,6 +169,18 @@ func (h *SearchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		resp.Message.Catalog.Providers = resp.Message.Catalog.Providers[:1]
 	}
 
+	// Async mode: ACK immediately, fire callback in background.
+	if h.callbackClient != nil {
+		writeACK(w)
+		go func() {
+			if err := h.callbackClient.PostOnSearch(resp); err != nil {
+				log.Printf("ERROR callback on_search: %v", err)
+			}
+		}()
+		return
+	}
+
+	// Sync mode (backward compatible): return on_search directly.
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		panic(err)

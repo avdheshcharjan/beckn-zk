@@ -5,7 +5,14 @@ import {
   type OnSearchResponse,
   type TagGroup,
 } from "@beckn-zk/core";
-import { BAP_ID, BAP_URI, BPP_TARGETS } from "@/lib/config";
+import {
+  BAP_ID,
+  BAP_URI,
+  BPP_TARGETS,
+  BECKN_MODE,
+  ONIX_BAP_URL,
+  BAP_SUBSCRIBER_URI,
+} from "@/lib/config";
 import { bus } from "@/lib/events";
 
 export const runtime = "nodejs";
@@ -31,39 +38,79 @@ interface BppOutcome {
 export async function POST(req: Request) {
   const body = (await req.json()) as ClientSearchBody;
 
+  if (BECKN_MODE === "onix") {
+    return handleOnixSearch(body);
+  }
+  return handleDirectSearch(body);
+}
+
+// --- onix mode: POST to beckn-onix BAP caller, return async handle ---
+async function handleOnixSearch(body: ClientSearchBody) {
   const search = buildSearch({
     bapId: BAP_ID,
-    bapUri: BAP_URI,
+    bapUri: BAP_SUBSCRIBER_URI,
     transactionId: body.transactionId,
     timestamp: body.timestamp,
-    intent: {
-      category: body.categoryName
-        ? { descriptor: { name: body.categoryName } }
-        : undefined,
-      item: body.itemName
-        ? { descriptor: { name: body.itemName } }
-        : undefined,
-      location: body.gps
-        ? {
-            circle: {
-              gps: body.gps,
-              radius: {
-                type: "CONSTANT",
-                value: body.radiusKm ?? "5",
-                unit: "km",
-              },
-            },
-          }
-        : undefined,
-      tags: body.zkTag ? [body.zkTag] : undefined,
-    },
+    intent: buildIntent(body),
   });
 
   const txId = search.context.transaction_id;
   const ts = search.context.timestamp;
   const zk = Boolean(body.zkTag);
 
-  // One outbound event per target so the console can show three separate rows.
+  bus.publish({
+    id: randomUUID(),
+    kind: "search.outbound",
+    transactionId: txId,
+    timestamp: ts,
+    payload: search,
+    zk,
+  });
+
+  try {
+    const res = await fetch(`${ONIX_BAP_URL}/bap/caller/search`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(search),
+    });
+
+    if (!res.ok) {
+      const errBody = await res.text();
+      return NextResponse.json(
+        { mode: "async", error: `onix returned ${res.status}: ${errBody}` },
+        { status: 502 },
+      );
+    }
+
+    return NextResponse.json({
+      mode: "async",
+      transaction_id: txId,
+    });
+  } catch (err) {
+    return NextResponse.json(
+      {
+        mode: "async",
+        error: err instanceof Error ? err.message : "onix fetch failed",
+      },
+      { status: 502 },
+    );
+  }
+}
+
+// --- direct mode: fan-out to all BPPs synchronously (existing behavior) ---
+async function handleDirectSearch(body: ClientSearchBody) {
+  const search = buildSearch({
+    bapId: BAP_ID,
+    bapUri: BAP_URI,
+    transactionId: body.transactionId,
+    timestamp: body.timestamp,
+    intent: buildIntent(body),
+  });
+
+  const txId = search.context.transaction_id;
+  const ts = search.context.timestamp;
+  const zk = Boolean(body.zkTag);
+
   for (const t of BPP_TARGETS) {
     bus.publish({
       id: randomUUID(),
@@ -122,4 +169,28 @@ export async function POST(req: Request) {
   );
 
   return NextResponse.json({ request: search, outcomes });
+}
+
+function buildIntent(body: ClientSearchBody) {
+  return {
+    category: body.categoryName
+      ? { descriptor: { name: body.categoryName } }
+      : undefined,
+    item: body.itemName
+      ? { descriptor: { name: body.itemName } }
+      : undefined,
+    location: body.gps
+      ? {
+          circle: {
+            gps: body.gps,
+            radius: {
+              type: "CONSTANT",
+              value: body.radiusKm ?? "5",
+              unit: "km",
+            },
+          },
+        }
+      : undefined,
+    tags: body.zkTag ? [body.zkTag] : undefined,
+  };
 }

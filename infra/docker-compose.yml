@@ -1,0 +1,136 @@
+services:
+  # ---------- shared infra ----------
+  redis:
+    image: redis:alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 5
+
+  registry:
+    image: fidedocker/registry
+    ports: ["3030:3030"]
+    volumes:
+      - ./registry-data/config:/usr/src/app/overrideProperties
+    environment:
+      - ENV=dev
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3030/subscribers"]
+      interval: 5s
+      retries: 10
+
+  gateway:
+    image: fidedocker/gateway
+    ports: ["4030:4030"]
+    depends_on:
+      registry:
+        condition: service_healthy
+    volumes:
+      - ./gateway-data/config:/usr/src/app/overrideProperties
+    environment:
+      - ENV=dev
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4030/healthz"]
+      interval: 5s
+      retries: 10
+
+  # ---------- beckn-onix adapters ----------
+  onix-bap:
+    image: fidedocker/onix-adapter
+    ports: ["8081:8081"]
+    depends_on:
+      redis:
+        condition: service_healthy
+      registry:
+        condition: service_healthy
+    volumes:
+      - ./onix-config-rendered:/config
+    environment:
+      - CONFIG_FILE=/config/bap.yaml
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  onix-bpp-alpha:
+    image: fidedocker/onix-adapter
+    ports: ["8082:8082"]
+    depends_on:
+      redis:
+        condition: service_healthy
+      registry:
+        condition: service_healthy
+    volumes:
+      - ./onix-config-rendered:/config
+    environment:
+      - CONFIG_FILE=/config/bpp-alpha.yaml
+
+  onix-bpp-beta:
+    image: fidedocker/onix-adapter
+    ports: ["8083:8083"]
+    depends_on:
+      redis:
+        condition: service_healthy
+      registry:
+        condition: service_healthy
+    volumes:
+      - ./onix-config-rendered:/config
+    environment:
+      - CONFIG_FILE=/config/bpp-beta.yaml
+
+  onix-bpp-gamma:
+    image: fidedocker/onix-adapter
+    ports: ["8084:8084"]
+    depends_on:
+      redis:
+        condition: service_healthy
+      registry:
+        condition: service_healthy
+    volumes:
+      - ./onix-config-rendered:/config
+    environment:
+      - CONFIG_FILE=/config/bpp-gamma.yaml
+
+  # ---------- BPP services ----------
+  bpp-alpha:
+    build:
+      context: ../services/bpp
+    ports: ["9001:8080"]
+    environment:
+      - BPP_PERSONALITY=lab-alpha
+      - PORT=8080
+      - ONIX_CALLBACK_URL=http://onix-bpp-alpha:8082/bpp/caller
+      - BPP_URI=http://onix-bpp-alpha:8082/bpp/receiver/
+    depends_on:
+      - onix-bpp-alpha
+
+  bpp-beta:
+    build:
+      context: ../services/bpp
+    ports: ["9002:8080"]
+    environment:
+      - BPP_PERSONALITY=lab-beta
+      - PORT=8080
+      - ONIX_CALLBACK_URL=http://onix-bpp-beta:8083/bpp/caller
+      - BPP_URI=http://onix-bpp-beta:8083/bpp/receiver/
+    depends_on:
+      - onix-bpp-beta
+
+  bpp-gamma:
+    build:
+      context: ../services/bpp
+    ports: ["9003:8080"]
+    environment:
+      - BPP_PERSONALITY=lab-gamma
+      - PORT=8080
+      - ONIX_CALLBACK_URL=http://onix-bpp-gamma:8084/bpp/caller
+      - BPP_URI=http://onix-bpp-gamma:8084/bpp/receiver/
+    depends_on:
+      - onix-bpp-gamma
+
+  # ---------- ledger ----------
+  ledger:
+    build:
+      context: ../services/ledger
+    ports: ["8090:8080"]
+    environment:
+      - PORT=8080

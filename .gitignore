@@ -4,6 +4,7 @@ out/
 dist/
 .env
 .env.local
+infra/onix-config-rendered/
 .vercel/
 .fly/
 *.log

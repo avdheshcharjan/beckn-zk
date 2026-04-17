@@ -30,7 +30,7 @@ func TestSearchReturnsCatalog(t *testing.T) {
 	r := httptest.NewRequest(http.MethodPost, "/search", bytes.NewReader(body))
 	w := httptest.NewRecorder()
 
-	NewSearchHandler("lab-alpha").ServeHTTP(w, r)
+	NewSearchHandler("lab-alpha", nil, "").ServeHTTP(w, r)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
@@ -57,7 +57,7 @@ func TestSearchRejectsWrongAction(t *testing.T) {
 	body, _ := json.Marshal(req)
 	r := httptest.NewRequest(http.MethodPost, "/search", bytes.NewReader(body))
 	w := httptest.NewRecorder()
-	NewSearchHandler("lab-alpha").ServeHTTP(w, r)
+	NewSearchHandler("lab-alpha", nil, "").ServeHTTP(w, r)
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", w.Code)
 	}

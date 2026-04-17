@@ -154,3 +154,16 @@ type OnSearchResponse struct {
 	Message OnSearchMessage `json:"message"`
 	Error   *BecknError     `json:"error,omitempty"`
 }
+
+type Ack struct {
+	Status string `json:"status"`
+}
+
+type AckMessage struct {
+	Ack Ack `json:"ack"`
+}
+
+type AckResponse struct {
+	Message AckMessage  `json:"message"`
+	Error   *BecknError `json:"error,omitempty"`
+}

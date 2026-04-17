@@ -1,0 +1,9 @@
+routingRules:
+  - domain: "dhp:diagnostics:0.1.0"
+    version: "1.1.0"
+    routingType: "url"
+    targetType: "url"
+    target:
+      url: "http://gateway:4030/bg"
+    endpoints:
+      - search

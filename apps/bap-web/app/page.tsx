@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { SearchForm, type SearchFormValues } from "./components/SearchForm";
 import { CatalogList } from "./components/CatalogList";
 import { NetworkConsole } from "./components/NetworkConsole";
@@ -11,7 +11,7 @@ import {
   normalizeAnonAadhaarProof,
   toZkTagGroup,
 } from "@/lib/zk";
-import type { TagGroup, Item } from "@beckn-zk/core";
+import type { TagGroup, Item, OnSearchResponse } from "@beckn-zk/core";
 
 function extractRawProof(serialized: unknown): unknown {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -34,57 +34,142 @@ export default function Home() {
   const [anonAadhaar] = useAnonAadhaar();
   const [ledgerKey, setLedgerKey] = useState(0);
   const [booking, setBooking] = useState(false);
+  const [activeTransactionId, setActiveTransactionId] = useState<string | null>(
+    null,
+  );
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  async function onSubmit(values: SearchFormValues) {
-    setLoading(true);
-    try {
-      let zkTag: TagGroup | null = null;
-      let transactionId: string | undefined;
-      let timestamp: string | undefined;
+  // SSE listener for async on_search callbacks (onix mode).
+  useEffect(() => {
+    if (!activeTransactionId) return;
 
-      if (zkMode) {
-        if (anonAadhaar.status !== "logged-in") {
-          alert("Generate an anon-aadhaar proof first (click the button above).");
-          return;
-        }
-        const proofs = anonAadhaar.anonAadhaarProofs;
-        const first = proofs ? Object.values(proofs)[0] : null;
-        if (!first) {
-          alert("No proof object found.");
-          return;
-        }
-        const raw = extractRawProof(first);
-        if (!raw || !(raw as { groth16Proof?: unknown }).groth16Proof) {
-          alert("Unexpected proof shape — check console.");
-          console.error("raw proof extraction failed:", first);
-          return;
-        }
-        transactionId = crypto.randomUUID();
-        timestamp = new Date().toISOString();
-        const binding = await computeBinding(transactionId, timestamp);
-        const normalized = normalizeAnonAadhaarProof({
-          raw: raw as Parameters<typeof normalizeAnonAadhaarProof>[0]["raw"],
-          binding,
-        });
-        zkTag = toZkTagGroup(normalized);
+    const es = new EventSource("/api/bap/events");
+
+    const handler = (msg: MessageEvent) => {
+      let ev: { kind: string; transactionId: string; payload: unknown };
+      try {
+        ev = JSON.parse(msg.data);
+      } catch {
+        return;
       }
 
-      const res = await fetch("/api/bap/search", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...values, zkTag, transactionId, timestamp }),
-      });
-      if (!res.ok) {
-        throw new Error(`search failed: ${res.status}`);
-      }
-      const json = (await res.json()) as {
-        outcomes: Parameters<typeof CatalogList>[0]["outcomes"];
-      };
-      setOutcomes(json.outcomes);
-    } finally {
+      if (ev.transactionId !== activeTransactionId) return;
+      if (ev.kind !== "search.inbound" && ev.kind !== "search.error") return;
+
+      const payload = ev.payload as OnSearchResponse;
+      const bppId = payload?.context?.bpp_id ?? "unknown";
+      const isError = ev.kind === "search.error";
+
+      setOutcomes((prev) => [
+        ...prev,
+        {
+          bppId,
+          bppUrl: payload?.context?.bpp_uri ?? "",
+          status: isError ? 403 : 200,
+          body: payload,
+        },
+      ]);
+    };
+
+    es.onmessage = handler;
+    return () => es.close();
+  }, [activeTransactionId]);
+
+  // 30s timeout for async mode.
+  useEffect(() => {
+    if (!activeTransactionId) return;
+    timeoutRef.current = setTimeout(() => {
+      setActiveTransactionId(null);
       setLoading(false);
-    }
-  }
+    }, 30_000);
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, [activeTransactionId]);
+
+  const onSubmit = useCallback(
+    async (values: SearchFormValues) => {
+      setLoading(true);
+      setOutcomes([]);
+      setActiveTransactionId(null);
+
+      try {
+        let zkTag: TagGroup | null = null;
+        let transactionId: string | undefined;
+        let timestamp: string | undefined;
+
+        if (zkMode) {
+          if (anonAadhaar.status !== "logged-in") {
+            alert(
+              "Generate an anon-aadhaar proof first (click the button above).",
+            );
+            return;
+          }
+          const proofs = anonAadhaar.anonAadhaarProofs;
+          const first = proofs ? Object.values(proofs)[0] : null;
+          if (!first) {
+            alert("No proof object found.");
+            return;
+          }
+          const raw = extractRawProof(first);
+          if (!raw || !(raw as { groth16Proof?: unknown }).groth16Proof) {
+            alert("Unexpected proof shape — check console.");
+            console.error("raw proof extraction failed:", first);
+            return;
+          }
+          transactionId = crypto.randomUUID();
+          timestamp = new Date().toISOString();
+          const binding = await computeBinding(transactionId, timestamp);
+          const normalized = normalizeAnonAadhaarProof({
+            raw: raw as Parameters<
+              typeof normalizeAnonAadhaarProof
+            >[0]["raw"],
+            binding,
+          });
+          zkTag = toZkTagGroup(normalized);
+        }
+
+        const res = await fetch("/api/bap/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...values, zkTag, transactionId, timestamp }),
+        });
+
+        const json = await res.json();
+
+        // Async mode (onix): stay in loading state, wait for SSE callbacks.
+        if (json.mode === "async") {
+          if (json.error) {
+            setOutcomes([
+              {
+                bppId: "onix",
+                bppUrl: "",
+                status: 502,
+                body: { error: { code: "ONIX", message: json.error } },
+              },
+            ]);
+            setLoading(false);
+          } else {
+            setActiveTransactionId(json.transaction_id);
+            // loading stays true until SSE events arrive or timeout
+          }
+          return;
+        }
+
+        // Direct mode: outcomes come back synchronously.
+        if (!res.ok) {
+          throw new Error(`search failed: ${res.status}`);
+        }
+        setOutcomes(json.outcomes ?? []);
+      } finally {
+        // Only clear loading in direct mode (async mode manages it via SSE).
+        if (!activeTransactionId) {
+          setLoading(false);
+        }
+      }
+    },
+    [zkMode, anonAadhaar, activeTransactionId],
+  );
 
   async function onBook(item: Item) {
     if (anonAadhaar.status !== "logged-in") {
@@ -114,7 +199,10 @@ export default function Home() {
         binding,
       });
       const solvencyTag = toZkTagGroup(normalized);
-      solvencyTag.descriptor = { code: "solvency_proof", name: "Solvency proof" };
+      solvencyTag.descriptor = {
+        code: "solvency_proof",
+        name: "Solvency proof",
+      };
 
       const amount = parseInt(item.price.value, 10) || 3000;
 
@@ -168,9 +256,18 @@ export default function Home() {
         {zkMode && <LogInWithAnonAadhaar nullifierSeed={1234} />}
 
         <SearchForm onSubmit={onSubmit} disabled={loading} />
+
+        {loading && activeTransactionId && (
+          <p className="text-xs font-mono opacity-60 animate-pulse">
+            waiting for on_search callbacks (onix async)...
+          </p>
+        )}
+
         <CatalogList
           outcomes={outcomes}
-          onBook={zkMode && anonAadhaar.status === "logged-in" ? onBook : undefined}
+          onBook={
+            zkMode && anonAadhaar.status === "logged-in" ? onBook : undefined
+          }
         />
         {booking && (
           <p className="text-xs font-mono opacity-60 animate-pulse">

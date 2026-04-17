@@ -11,9 +11,10 @@ interface Props {
 }
 
 export function CatalogList({ outcomes, onBook }: Props) {
+  const items = outcomes ?? [];
   return (
     <div className="flex flex-col gap-4 font-mono text-sm">
-      {outcomes.map((o) => {
+      {items.map((o) => {
         const isSuccess = "context" in o.body;
         return (
           <div key={o.bppId ?? o.bppUrl} className="border border-neutral-800 p-3">
