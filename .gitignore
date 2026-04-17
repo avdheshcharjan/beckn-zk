@@ -19,4 +19,3 @@ services/ledger/bin/
 *.wasm
 !**/public/**/*.wasm
 .claude
-docs/

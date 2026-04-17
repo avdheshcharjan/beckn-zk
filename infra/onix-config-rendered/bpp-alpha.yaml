@@ -1,0 +1,112 @@
+appName: "beckn-zk-bpp-alpha"
+log:
+  level: debug
+  destinations:
+    - type: stdout
+  contextKeys:
+    - transaction_id
+    - message_id
+
+http:
+  port: 8082
+  timeout:
+    read: 30
+    write: 30
+    idle: 30
+
+pluginManager:
+  root: /app/plugins
+
+modules:
+  - name: bppTxnReceiver
+    path: /bpp/receiver/
+    handler:
+      type: std
+      role: bpp
+      subscriberId: beckn-zk-bpp-lab-alpha
+      httpClientConfig:
+        maxIdleConns: 100
+        maxIdleConnsPerHost: 50
+        idleConnTimeout: 300s
+        responseHeaderTimeout: 10s
+      plugins:
+        registry:
+          id: registry
+          config:
+            url: http://registry:3030/subscribers
+            retry_max: 3
+            retry_wait_min: 100ms
+            retry_wait_max: 500ms
+        keyManager:
+          id: simplekeymanager
+          config:
+            networkParticipant: beckn-zk-bpp-lab-alpha
+            keyId: beckn-zk-bpp-alpha-key
+            signingPrivateKey: afLMIdzCe5AD26XS+56ZTb7rWxAtqC4tYg/hpOApwLU=
+            signingPublicKey: lslCYXeFq96KtGopUQRs+ubM1I449z3mjZ8uItHbeyM=
+            encrPrivateKey: afLMIdzCe5AD26XS+56ZTb7rWxAtqC4tYg/hpOApwLU=
+            encrPublicKey: lslCYXeFq96KtGopUQRs+ubM1I449z3mjZ8uItHbeyM=
+        cache:
+          id: cache
+          config:
+            addr: redis:6379
+        signValidator:
+          id: signvalidator
+        router:
+          id: router
+          config:
+            routingConfig: /config/routing-bpp-alpha-receiver.yaml
+        middleware:
+          - id: reqpreprocessor
+            config:
+              contextKeys: transaction_id,message_id
+              role: bpp
+      steps:
+        - validateSign
+        - addRoute
+
+  - name: bppTxnCaller
+    path: /bpp/caller/
+    handler:
+      type: std
+      role: bpp
+      httpClientConfig:
+        maxIdleConns: 100
+        maxIdleConnsPerHost: 50
+        idleConnTimeout: 300s
+        responseHeaderTimeout: 10s
+      plugins:
+        registry:
+          id: registry
+          config:
+            url: http://registry:3030/subscribers
+            retry_max: 3
+            retry_wait_min: 100ms
+            retry_wait_max: 500ms
+        keyManager:
+          id: simplekeymanager
+          config:
+            networkParticipant: beckn-zk-bpp-lab-alpha
+            keyId: beckn-zk-bpp-alpha-key
+            signingPrivateKey: afLMIdzCe5AD26XS+56ZTb7rWxAtqC4tYg/hpOApwLU=
+            signingPublicKey: lslCYXeFq96KtGopUQRs+ubM1I449z3mjZ8uItHbeyM=
+            encrPrivateKey: afLMIdzCe5AD26XS+56ZTb7rWxAtqC4tYg/hpOApwLU=
+            encrPublicKey: lslCYXeFq96KtGopUQRs+ubM1I449z3mjZ8uItHbeyM=
+        cache:
+          id: cache
+          config:
+            addr: redis:6379
+        router:
+          id: router
+          config:
+            routingConfig: /config/routing-bpp-caller.yaml
+        signer:
+          id: signer
+        middleware:
+          - id: reqpreprocessor
+            config:
+              contextKeys: transaction_id,message_id
+              role: bpp
+      steps:
+        - addRoute
+        - sign
